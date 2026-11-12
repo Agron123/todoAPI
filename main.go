@@ -93,8 +93,8 @@ func (cfg *apiConfig) handlerCreateTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if strings.TrimSpace(params.Title) == "" {
-		respondWithError(w, http.StatusBadRequest, "Title can not be empty")
+	if strings.TrimSpace(params.Title) == "" || strings.Contains(params.Title, "\x00") {
+		respondWithError(w, http.StatusBadRequest, "Invalid title")
 		return
 	}
 
@@ -106,6 +106,10 @@ func (cfg *apiConfig) handlerCreateTask(w http.ResponseWriter, r *http.Request) 
 	description := sql.NullString{}
 	if params.Description != nil {
 		description.String = *params.Description
+		if strings.Contains(*params.Description, "\x00") {
+			respondWithError(w, http.StatusBadRequest, "Invalid description")
+			return
+		}
 		description.Valid = true
 	} else {
 		description.Valid = false
@@ -140,16 +144,17 @@ func (cfg *apiConfig) handlerCreateTask(w http.ResponseWriter, r *http.Request) 
 }
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal(err)
-	}
+	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		log.Fatal("Db URL cannot be empty")
+	}
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Printf("Error occurred: %v", err)
 		log.Fatal("Fatal error, shutting down server")
 	}
+
 	defer db.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	err = db.PingContext(ctx)
@@ -158,6 +163,7 @@ func main() {
 		log.Printf("Error occurred: %v", err)
 		log.Fatal("Fatal error, shutting down server")
 	}
+
 	dbQueries := database.New(db)
 	apiCfg := apiConfig{
 		db: dbQueries,
