@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 	"todoAPI/internal/database"
 
@@ -26,8 +30,8 @@ type Task struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Status      string    `json:"status"`
-	Created_at  time.Time `json:"created_at"`
-	Updated_at  time.Time `json:"updated_at"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
@@ -61,13 +65,44 @@ func (cfg *apiConfig) handlerCreateTask(w http.ResponseWriter, r *http.Request) 
 		Description *string `json:"description"`
 	}
 
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	params := parameters{}
+	var extra any
+	var maxBytesError *http.MaxBytesError
 	err := decoder.Decode(&params)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, err.Error())
+		if errors.As(err, &maxBytesError) {
+			log.Printf("Error occurred: %v", err)
+			respondWithError(w, http.StatusRequestEntityTooLarge, "Request size is too big")
+			return
+		}
+		log.Printf("Error occurred: %v", err)
+		respondWithError(w, http.StatusBadRequest, "Incorrect JSON data")
 		return
 	}
+
+	err = decoder.Decode(&extra)
+	if err != io.EOF {
+		if errors.As(err, &maxBytesError) {
+			log.Printf("Error occurred: %v", err)
+			respondWithError(w, http.StatusRequestEntityTooLarge, "Request size is too big")
+			return
+		}
+		log.Printf("Error occurred: %v", err)
+		respondWithError(w, http.StatusBadRequest, "Request body must contain a single JSON object")
+		return
+	}
+
+	if strings.TrimSpace(params.Title) == "" {
+		respondWithError(w, http.StatusBadRequest, "Title can not be empty")
+		return
+	}
+
+	if params.Status != "todo" && params.Status != "in_progress" && params.Status != "done" {
+		respondWithError(w, http.StatusBadRequest, "Status can only be todo, in_progress, done")
+		return
+	}
+
 	description := sql.NullString{}
 	if params.Description != nil {
 		description.String = *params.Description
@@ -82,9 +117,12 @@ func (cfg *apiConfig) handlerCreateTask(w http.ResponseWriter, r *http.Request) 
 		Description: description,
 	}
 
-	dbTask, err := cfg.db.CreateTask(r.Context(), taskParams)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	dbTask, err := cfg.db.CreateTask(ctx, taskParams)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("Error occurred: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -93,8 +131,8 @@ func (cfg *apiConfig) handlerCreateTask(w http.ResponseWriter, r *http.Request) 
 		Title:       dbTask.Title,
 		Description: dbTask.Description.String,
 		Status:      dbTask.Status,
-		Created_at:  dbTask.CreatedAt,
-		Updated_at:  dbTask.UpdatedAt,
+		CreatedAt:   dbTask.CreatedAt,
+		UpdatedAt:   dbTask.UpdatedAt,
 	}
 
 	respondWithJSON(w, http.StatusCreated, task)
@@ -109,7 +147,16 @@ func main() {
 	dbURL := os.Getenv("DB_URL")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Error occurred: %v", err)
+		log.Fatal("Fatal error, shutting down server")
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err = db.PingContext(ctx)
+	cancel()
+	if err != nil {
+		log.Printf("Error occurred: %v", err)
+		log.Fatal("Fatal error, shutting down server")
 	}
 	dbQueries := database.New(db)
 	apiCfg := apiConfig{
@@ -119,8 +166,11 @@ func main() {
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("POST /api/tasks", apiCfg.handlerCreateTask)
 	server := http.Server{
-		Addr:    ":" + port,
-		Handler: serveMux,
+		Addr:              ":" + port,
+		Handler:           serveMux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
 	}
 
 	log.Printf("Listening on %v port", port)
