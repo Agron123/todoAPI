@@ -48,6 +48,9 @@ func main() {
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("POST /api/tasks", apiCfg.handlerCreateTask)
 	serveMux.HandleFunc("GET /api/tasks", apiCfg.handlerGetAlltasks)
+	serveMux.HandleFunc("GET /api/tasks/{taskID}", apiCfg.handlerGetTaskByID)
+	serveMux.HandleFunc("PUT /api/tasks/{taskID}", apiCfg.handlerUpdateTaskByID)
+	serveMux.HandleFunc("DELETE /api/tasks/{taskID}", apiCfg.handlerDeleteTaskByID)
 
 	server := http.Server{
 		Addr:              ":" + port,
