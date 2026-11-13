@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"todoAPI/internal/database"
@@ -15,10 +16,14 @@ import (
 	"github.com/google/uuid"
 )
 
+const defaultLimit = 20
+const maxLimit = 100
+const defaultOffset = 0
+
 type Task struct {
 	ID          uuid.UUID `json:"id"`
 	Title       string    `json:"title"`
-	Description string    `json:"description"`
+	Description *string   `json:"description"`
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -121,12 +126,15 @@ func (cfg *apiConfig) handlerCreateTask(w http.ResponseWriter, r *http.Request) 
 	}
 
 	task := Task{
-		ID:          dbTask.ID,
-		Title:       dbTask.Title,
-		Description: dbTask.Description.String,
-		Status:      dbTask.Status,
-		CreatedAt:   dbTask.CreatedAt,
-		UpdatedAt:   dbTask.UpdatedAt,
+		ID:        dbTask.ID,
+		Title:     dbTask.Title,
+		Status:    dbTask.Status,
+		CreatedAt: dbTask.CreatedAt,
+		UpdatedAt: dbTask.UpdatedAt,
+	}
+
+	if dbTask.Description.Valid == true {
+		task.Description = &dbTask.Description.String
 	}
 
 	respondWithJSON(w, http.StatusCreated, task)
@@ -135,20 +143,63 @@ func (cfg *apiConfig) handlerCreateTask(w http.ResponseWriter, r *http.Request) 
 
 func (cfg *apiConfig) handlerGetAlltasks(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
-	var dbTasks []database.Task
+	limitString := r.URL.Query().Get("limit")
+	offsetString := r.URL.Query().Get("offset")
+	var limitInt int
+	var offsetInt int
 	var err error
+
+	if limitString != "" {
+		limitInt, err = strconv.Atoi(limitString)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid limit value")
+			return
+		}
+	} else {
+		limitInt = defaultLimit
+	}
+
+	if limitInt <= 0 || limitInt > 100 {
+		respondWithError(w, http.StatusBadRequest, "Limit value is out of bounds")
+		return
+	}
+	if offsetString != "" {
+		offsetInt, err = strconv.Atoi(offsetString)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid offset value")
+			return
+		}
+	} else {
+		offsetInt = defaultOffset
+	}
+
+	if offsetInt < 0 {
+		respondWithError(w, http.StatusBadRequest, "Offset value is out of bounds")
+		return
+	}
+
+	var dbTasks []database.Task
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
 	if status == "" {
-		dbTasks, err = cfg.db.GetAllTasks(ctx)
+		allTaskParams := database.GetAllTasksParams{
+			Limit:  int32(limitInt),
+			Offset: int32(offsetInt),
+		}
+		dbTasks, err = cfg.db.GetAllTasks(ctx, allTaskParams)
 
 	} else if status != "todo" && status != "in_progress" && status != "done" {
 		respondWithError(w, http.StatusBadRequest, "Status must be one of: done, in_progress, todo")
 		return
 
 	} else {
-		dbTasks, err = cfg.db.GetAllTasksByStatus(ctx, status)
+		allTaskParamsByStatus := database.GetAllTasksByStatusParams{
+			Status: status,
+			Limit:  int32(limitInt),
+			Offset: int32(offsetInt),
+		}
+		dbTasks, err = cfg.db.GetAllTasksByStatus(ctx, allTaskParamsByStatus)
 
 	}
 
@@ -160,14 +211,16 @@ func (cfg *apiConfig) handlerGetAlltasks(w http.ResponseWriter, r *http.Request)
 
 	tasks := []Task{}
 	for _, value := range dbTasks {
-		tasks = append(tasks, Task{
-			ID:          value.ID,
-			Title:       value.Title,
-			Description: value.Description.String,
-			Status:      value.Status,
-			CreatedAt:   value.CreatedAt,
-			UpdatedAt:   value.UpdatedAt,
-		})
+		task := Task{}
+		if value.Description.Valid == true {
+			task.Description = &value.Description.String
+		}
+		task.ID = value.ID
+		task.Title = value.Title
+		task.Status = value.Status
+		task.CreatedAt = value.CreatedAt
+		task.UpdatedAt = value.UpdatedAt
+		tasks = append(tasks, task)
 	}
 
 	respondWithJSON(w, http.StatusOK, tasks)
@@ -197,12 +250,15 @@ func (cfg *apiConfig) handlerGetTaskByID(w http.ResponseWriter, r *http.Request)
 	}
 
 	task := Task{
-		ID:          dbTask.ID,
-		Title:       dbTask.Title,
-		Description: dbTask.Description.String,
-		Status:      dbTask.Status,
-		CreatedAt:   dbTask.CreatedAt,
-		UpdatedAt:   dbTask.UpdatedAt,
+		ID:        dbTask.ID,
+		Title:     dbTask.Title,
+		Status:    dbTask.Status,
+		CreatedAt: dbTask.CreatedAt,
+		UpdatedAt: dbTask.UpdatedAt,
+	}
+
+	if dbTask.Description.Valid == true {
+		task.Description = &dbTask.Description.String
 	}
 
 	respondWithJSON(w, http.StatusOK, task)
@@ -291,12 +347,15 @@ func (cfg *apiConfig) handlerUpdateTaskByID(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	task := Task{
-		ID:          updatedTask.ID,
-		Title:       updatedTask.Title,
-		Status:      updatedTask.Status,
-		Description: updatedTask.Description.String,
-		CreatedAt:   updatedTask.CreatedAt,
-		UpdatedAt:   updatedTask.UpdatedAt,
+		ID:        updatedTask.ID,
+		Title:     updatedTask.Title,
+		Status:    updatedTask.Status,
+		CreatedAt: updatedTask.CreatedAt,
+		UpdatedAt: updatedTask.UpdatedAt,
+	}
+
+	if updatedTask.Description.Valid == true {
+		task.Description = &updatedTask.Description.String
 	}
 
 	respondWithJSON(w, http.StatusOK, task)

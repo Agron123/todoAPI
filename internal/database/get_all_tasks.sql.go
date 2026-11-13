@@ -11,10 +11,17 @@ import (
 
 const getAllTasks = `-- name: GetAllTasks :many
 SELECT id, title, description, status, created_at, updated_at FROM tasks
+ORDER BY created_at DESC, id DESC
+LIMIT $1 OFFSET $2
 `
 
-func (q *Queries) GetAllTasks(ctx context.Context) ([]Task, error) {
-	rows, err := q.db.QueryContext(ctx, getAllTasks)
+type GetAllTasksParams struct {
+	Limit  int32
+	Offset int32
+}
+
+func (q *Queries) GetAllTasks(ctx context.Context, arg GetAllTasksParams) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, getAllTasks, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

@@ -12,10 +12,18 @@ import (
 const getAllTasksByStatus = `-- name: GetAllTasksByStatus :many
 SELECT id, title, description, status, created_at, updated_at FROM tasks
 WHERE status = $1
+ORDER BY created_at DESC, id DESC
+LIMIT $2 OFFSET $3
 `
 
-func (q *Queries) GetAllTasksByStatus(ctx context.Context, status string) ([]Task, error) {
-	rows, err := q.db.QueryContext(ctx, getAllTasksByStatus, status)
+type GetAllTasksByStatusParams struct {
+	Status string
+	Limit  int32
+	Offset int32
+}
+
+func (q *Queries) GetAllTasksByStatus(ctx context.Context, arg GetAllTasksByStatusParams) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, getAllTasksByStatus, arg.Status, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

@@ -277,12 +277,20 @@ func TestUpdateTaskSuccess(t *testing.T) {
 			if task.Status != tt.wantStatus {
 				t.Errorf("Expected status %q, got %q", tt.wantStatus, task.Status)
 			}
-			if task.Description != tt.wantDescription {
-				t.Errorf(
-					"Expected description %q, got %q",
-					tt.wantDescription,
-					task.Description,
-				)
+			if !tt.wantDescriptionDB.Valid {
+				if task.Description != nil {
+					t.Errorf("Expected nil description, got %q", *task.Description)
+				}
+			} else {
+				if task.Description == nil {
+					t.Errorf("Expected description %q, got nil", tt.wantDescriptionDB.String)
+				} else if *task.Description != tt.wantDescriptionDB.String {
+					t.Errorf(
+						"Expected description %q, got %q",
+						tt.wantDescriptionDB.String,
+						*task.Description,
+					)
+				}
 			}
 			if !task.CreatedAt.Equal(originalCreatedAt) {
 				t.Error("created_at changed during update")

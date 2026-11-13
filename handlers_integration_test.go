@@ -107,9 +107,20 @@ func TestCreateTaskSuccess(t *testing.T) {
 				t.Errorf("Expected status todo, got %q", task.Status)
 			}
 
-			if task.Description != tc.expectedDescription {
-				t.Errorf("Expected description %q, got %q",
-					tc.expectedDescription, task.Description)
+			if tc.descriptionIsNull {
+				if task.Description != nil {
+					t.Errorf("Expected nil description, got %q", *task.Description)
+				}
+			} else {
+				if task.Description == nil {
+					t.Errorf("Expected description %q, got nil", tc.expectedDescription)
+				} else if *task.Description != tc.expectedDescription {
+					t.Errorf(
+						"Expected description %q, got %q",
+						tc.expectedDescription,
+						*task.Description,
+					)
+				}
 			}
 
 			if task.CreatedAt.IsZero() || task.UpdatedAt.IsZero() {
@@ -427,8 +438,10 @@ func TestGetTaskByID(t *testing.T) {
 			if task.Status != "todo" {
 				t.Errorf("Expected status todo, got %q", task.Status)
 			}
-			if task.Description != "Test description" {
-				t.Errorf("Unexpected description: %q", task.Description)
+			if task.Description == nil {
+				t.Error("Expected description, got nil")
+			} else if *task.Description != "Test description" {
+				t.Errorf("Expected description %q, got %q", "Test description", *task.Description)
 			}
 			if task.CreatedAt.IsZero() || task.UpdatedAt.IsZero() {
 				t.Error("Expected nonzero timestamps")
